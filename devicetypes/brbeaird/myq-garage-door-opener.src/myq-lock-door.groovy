@@ -1,11 +1,7 @@
 /**
- * -----------------------
- * --- DEVICE HANDLER ----
- * -----------------------
- *
  *  MyQ Garage Door Opener
  *
- *  Copyright 2019 Jason Mok/Brian Beaird/Barry Burke
+ *  Copyright 2019 Brian Beaird
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
@@ -19,30 +15,30 @@
  *
  */
 metadata {
-	definition (name: "MyQ Garage Door Opener", namespace: "brbeaird", author: "Jason Mok/Brian Beaird/Barry Burke", vid: "generic-contact-4", ocfdevicetype: "oic.d.garagedoor", mnmn: "SmartThings") {
-		capability "Door Control"
+	definition (name: "MyQ Lock Door", namespace: "brbeaird", author: "Brian Beaird", vid: "generic-contact-4", ocfdevicetype: "oic.d.garagedoor", mnmn: "SmartThings") {
+		
 		capability "Garage Door Control"
-		capability "Contact Sensor"
+		capability "Door Control"
+        capability "Contact Sensor"
 		capability "Refresh"
 		capability "Polling"
-
-		capability "Actuator"
-		capability "Switch"
-		capability "Momentary"
+		capability "Actuator"		
 		capability "Sensor"
-        //capability "Health Check" Will be needed eventually for new app compatability but is not documented well enough yet
+        capability "Lock"
+        capability "Health Check"
 		
 		attribute "lastActivity", "string"
         attribute "doorSensor", "string"
         attribute "doorMoving", "string"
         attribute "OpenButton", "string"
         attribute "CloseButton", "string"
-        attribute "myQDeviceId", "string"
+        attribute "dhName", "string"
         
 		command "updateDeviceStatus", ["string"]
 		command "updateDeviceLastActivity", ["number"]
         command "updateDeviceMoving", ["string"]
-        command "updateMyQDeviceId", ["string"]
+        command "lock"
+        command "unlock"
 	}
 
 	simulator {	}
@@ -51,13 +47,13 @@ metadata {
 		
 		multiAttributeTile(name:"door", type: "lighting", width: 6, height: 4, canChangeIcon: false) {
 			tileAttribute ("device.door", key: "PRIMARY_CONTROL") {
-				attributeState "unknown", label:'${name}', icon:"st.doors.garage.garage-closed",    backgroundColor:"#ffa81e"
-				attributeState "closed",  label:'${name}', action:"push",   icon:"st.doors.garage.garage-closed",  backgroundColor:"#00a0dc", nextState: "opening"
-				attributeState "open",    label:'${name}', action:"push",  icon:"st.doors.garage.garage-open",    backgroundColor:"#e86d13", nextState: "closing"
-				attributeState "opening", label:'${name}', action:"push",	 icon:"st.doors.garage.garage-opening", backgroundColor:"#cec236"
-				attributeState "closing", label:'${name}', action:"push",	 icon:"st.doors.garage.garage-closing", backgroundColor:"#cec236"
-				attributeState "waiting", label:'${name}', action:"push",	 icon:"st.doors.garage.garage-closing", backgroundColor:"#cec236"
-				attributeState "stopped", label:'${name}', action:"push",  icon:"st.doors.garage.garage-closing", backgroundColor:"#1ee3ff"
+				attributeState "unknown", label:'${name}', icon:"st.doors.garage.garage-closed",    backgroundColor:"#ffa81e", nextState: "closing"
+				attributeState "closed",  label:'${name}', action:"door control.open",   icon:"st.doors.garage.garage-closed",  backgroundColor:"#00a0dc"
+				attributeState "open",    label:'${name}', action:"door control.close",  icon:"st.doors.garage.garage-open",    backgroundColor:"#e86d13"
+				attributeState "opening", label:'${name}', 								 icon:"st.doors.garage.garage-opening", backgroundColor:"#cec236"
+				attributeState "closing", label:'${name}', 								 icon:"st.doors.garage.garage-closing", backgroundColor:"#cec236"
+				attributeState "waiting", label:'${name}', 								 icon:"st.doors.garage.garage-closing", backgroundColor:"#cec236"
+				attributeState "stopped", label:'${name}', action:"door control.close",  icon:"st.doors.garage.garage-closing", backgroundColor:"#1ee3ff"
 			}
             tileAttribute("device.lastActivity", key: "SECONDARY_CONTROL") {
         		attributeState("lastActivity", label:'Last Activity: ${currentValue}', defaultState: true)
@@ -94,19 +90,29 @@ metadata {
 	}
 }
 
-def on() { 	
+def parse(String description) {}
+
+def on() { 
+	if (parent.prefDisableSwitch){
+    	log.error "WARNING: Switch capability has been disabled by SmartApp preferences."        
+    	return 0
+    }
     log.debug "Turning door on!"
     open()
     sendEvent(name: "switch", value: "on", isStateChange: true, display: true, displayed: true)	
 }
-def off() { 	
+def off() { 
+	if (parent.prefDisableSwitch){
+    	log.error "WARNING: Switch capability has been disabled by SmartApp preferences."        
+    	return 0
+    }
     log.debug "Turning door off!"
     close()    
 	sendEvent(name: "switch", value: "off", isStateChange: true, display: true, displayed: true)
 }
 
-def push() {	
-    def doorState = device.currentState("door")?.value
+def push() {
+	def doorState = device.currentState("door")?.value
 	if (doorState == "open" || doorState == "stopped") {
 		close()
 	} else if (doorState == "closed") {
@@ -131,36 +137,38 @@ def close() {
     runIn(30, refresh, [overwrite: true]) //Force a sync with tilt sensor after 30 seconds
 }
 
-def getMyQDeviceId(){	    
-    if (device.currentState("myQDeviceId")?.value)
-    	return device.currentState("myQDeviceId").value
-	else{    	
-        def newId = device.deviceNetworkId.split("\\|")[2]        
-        sendEvent(name: "myQDeviceId", value: newId, display: true , displayed: true)
-        return newId
-    }	
-}
-
-def refresh() {	        
-    parent.refresh(this)
+def refresh() {	    
+    parent.refresh(this)    
     sendEvent(name: "OpenButton", value: "normal", displayed: false, isStateChange: true)
     sendEvent(name: "CloseButton", value: "normal", displayed: false, isStateChange: true)
 }
 
 def poll() { refresh() }
 
+def lock(){
+	log.debug "locked"
+    close()
+    sendEvent(name: "lock", value: "locked", display: false, displayed: false, isStateChange: true)
+}
+
+def unlock(){
+	log.debug "unlocked"
+    open()
+    sendEvent(name: "lock", value: "unlocked", display: false, displayed: false, isStateChange: true)
+}
+
 // update status
 def updateDeviceStatus(status) {	
     
     def currentState = device.currentState("door")?.value
+    def lockState
+    if (device.currentState("lock")?.value == "locked"){lockState = "closed"}
+    if (device.currentState("lock")?.value == "unlocked"){lockState = "open"}
     
-    def switchState
-    if (device.currentState("switch")?.value == "on"){switchState = "open"}
-    if (device.currentState("switch")?.value == "off"){switchState = "closed"}       
-    
+    log.debug "Request received to update door status to : " + status    
     
     //Don't do anything if nothing changed
-    if (currentState == status && switchState == status){
+    if (currentState == status && lockState != status){
     	log.debug "No change; door is already set to " + status
         status = ""
     }
@@ -169,15 +177,15 @@ def updateDeviceStatus(status) {
 		case "open":
     		log.debug "Door is now open"
 			sendEvent(name: "door", value: "open", display: true, isStateChange: true, descriptionText: device.displayName + " is open") 
-			sendEvent(name: "contact", value: "open", display: false, displayed: false, isStateChange: true)	// make sure we update the hidden states as well
-        	sendEvent(name: "switch", value: "on", display: false, displayed: false, isStateChange: true)		// on == open            
+			sendEvent(name: "contact", value: "open", display: false, displayed: false, isStateChange: true)	// make sure we update the hidden states as well        	
+            sendEvent(name: "lock", value: "unlocked", display: false, displayed: false, isStateChange: true)		// unlocked == open
             break
             
         case "closed":
 			log.debug "Door is now closed"
         	sendEvent(name: "door", value: "closed", display: true, isStateChange: true, descriptionText: device.displayName + " is closed")
-			sendEvent(name: "contact", value: "closed", display: false, displayed: false, isStateChange: true)	// update hidden states
-        	sendEvent(name: "switch", value: "off", display: false, displayed: false, isStateChange: true)		// off == closed            
+			sendEvent(name: "contact", value: "closed", display: false, displayed: false, isStateChange: true)	// update hidden states        	
+            sendEvent(name: "lock", value: "locked", display: false, displayed: false, isStateChange: true)		// locked == closed
             break
             
 		case "opening":
@@ -227,6 +235,16 @@ def updateDeviceMoving(moving) {
 	sendEvent(name: "doorMoving", value: moving, display: false , displayed: false)
 }
 
+def getMyQDeviceId(){	    
+    if (device.currentState("myQDeviceId")?.value)
+    	return device.currentState("myQDeviceId").value
+	else{    	
+        def newId = device.deviceNetworkId.split("\\|")[2]        
+        sendEvent(name: "myQDeviceId", value: newId, display: true , displayed: true)
+        return newId
+    }	
+}
+
 def updateMyQDeviceId(Id) {
 	log.debug "Setting MyQID to ${Id}"
     sendEvent(name: "myQDeviceId", value: Id, display: true , displayed: true)
@@ -237,5 +255,24 @@ def log(msg){
 }
 
 def showVersion(){
-	return "3.1.0"
+	return "1.0.0"
 }
+
+/*Experimental settings in preparation for new ST app.
+def installed() {
+	sendEvent(name: "checkInterval", value: 4 * 60 * 60 + 2 * 60, displayed: false, data: [protocol: "cloud", scheme:"untracked"])
+}
+
+def updated() {
+	sendEvent(name: "checkInterval", value: 4 * 60 * 60 + 2 * 60, displayed: false, data: [protocol: "cloud", scheme:"untracked"])
+}
+
+def configure() {
+	sendEvent(name: "checkInterval", value: 4 * 60 * 60 + 2 * 60, displayed: false, data: [protocol: "cloud", scheme:"untracked"])
+}
+
+def ping() {
+    logDebug "ping()"	
+    return refresh()
+}
+*/
